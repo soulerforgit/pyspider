@@ -20,8 +20,7 @@ import pyspider
 from pyspider.message_queue import connect_message_queue
 from pyspider.database import connect_database
 from pyspider.libs import utils
-
-
+#把词典中key替换-变成_
 def read_config(ctx, param, value):
     if not value:
         return {}
@@ -36,7 +35,7 @@ def read_config(ctx, param, value):
     ctx.default_map = config
     return config
 
-
+#连接数据库
 def connect_db(ctx, param, value):
     if not value:
         return
@@ -60,31 +59,45 @@ def connect_rpc(ctx, param, value):
 
 
 @click.group(invoke_without_command=True)
+#读取配置文件
 @click.option('-c', '--config', callback=read_config, type=click.File('r'),
               help='a json file with default values for subcommands. {"webui": {"port":5001}}')
+#os.path.join(os.path.dirname(__file__), "logging.conf"这个位置在pyspider下面的logging.conf，用来处理日志
 @click.option('--logging-config', default=os.path.join(os.path.dirname(__file__), "logging.conf"),
               help="logging config file for built-in python logging module", show_default=True)
+#debug
 @click.option('--debug', envvar='DEBUG', default=False, is_flag=True, help='debug mode')
+#queue-maxsize
 @click.option('--queue-maxsize', envvar='QUEUE_MAXSIZE', default=100,
               help='maxsize of queue')
+#taskdb connect_db
 @click.option('--taskdb', envvar='TASKDB', callback=connect_db,
               help='database url for taskdb, default: sqlite')
+#projectdb connect_db
 @click.option('--projectdb', envvar='PROJECTDB', callback=connect_db,
               help='database url for projectdb, default: sqlite')
+#resultdb connnect_db
 @click.option('--resultdb', envvar='RESULTDB', callback=connect_db,
               help='database url for resultdb, default: sqlite')
+#message-queue url
 @click.option('--message-queue', envvar='AMQP_URL',
               help='connection url to message queue, '
               'default: builtin multiprocessing.Queue')
+#amqb-url
 @click.option('--amqp-url', help='[deprecated] amqp url for rabbitmq. '
               'please use --message-queue instead.')
+#beanstalk url
 @click.option('--beanstalk', envvar='BEANSTALK_HOST',
               help='[deprecated] beanstalk config for beanstalk queue. '
               'please use --message-queue instead.')
+#phantomjs proxy setting
 @click.option('--phantomjs-proxy', envvar='PHANTOMJS_PROXY', help="phantomjs proxy ip:port")
+#data path
 @click.option('--data-path', default='./data', help='data dir path')
+#add sys path
 @click.option('--add-sys-path/--not-add-sys-path', default=True, is_flag=True,
               help='add current working directory to python lib search path')
+#version_option version pyspider中的__init__
 @click.version_option(version=pyspider.__version__, prog_name=pyspider.__name__)
 @click.pass_context
 def cli(ctx, **kwargs):
@@ -92,24 +105,29 @@ def cli(ctx, **kwargs):
     A powerful spider system in python.
     """
     if kwargs['add_sys_path']:
-        sys.path.append(os.getcwd())
+        sys.path.append(os.getcwd())  #default:sys.path.append('/home/comboo/pyspider')
 
-    logging.config.fileConfig(kwargs['logging_config'])
+    logging.config.fileConfig(kwargs['logging_config']) #default /pyspider/logging_config
 
     # get db from env
     for db in ('taskdb', 'projectdb', 'resultdb'):
+        #如果kwargs[db]有值存在，则跳过循环。注意kwargs默认应该是空
         if kwargs[db] is not None:
             continue
+        #创建一个mysql连接存入kwargs变量中   
         if os.environ.get('MYSQL_NAME'):
             kwargs[db] = utils.Get(lambda db=db: connect_database(
                 'sqlalchemy+mysql+%s://%s:%s/%s' % (
                     db, os.environ['MYSQL_PORT_3306_TCP_ADDR'],
                     os.environ['MYSQL_PORT_3306_TCP_PORT'], db)))
+        #创建一个mongodb连接存入kwargs变量中    
         elif os.environ.get('MONGODB_NAME'):
             kwargs[db] = utils.Get(lambda db=db: connect_database(
                 'mongodb+%s://%s:%s/%s' % (
                     db, os.environ['MONGODB_PORT_27017_TCP_ADDR'],
                     os.environ['MONGODB_PORT_27017_TCP_PORT'], db)))
+        
+        #运行bench模式，这个模式下，内存sqlite代替硬盘的sqlite
         elif ctx.invoked_subcommand == 'bench':
             if kwargs['data_path'] == './data':
                 kwargs['data_path'] += '/bench'
@@ -128,10 +146,12 @@ def cli(ctx, **kwargs):
             kwargs['is_%s_default' % db] = True
 
     # create folder for counter.dump
+    #data path添加到kwargs
     if not os.path.exists(kwargs['data_path']):
         os.mkdir(kwargs['data_path'])
 
     # message queue, compatible with old version
+    #message_queue添加到kwargs
     if kwargs.get('message_queue'):
         pass
     elif kwargs.get('amqp_url'):
@@ -142,6 +162,7 @@ def cli(ctx, **kwargs):
     elif kwargs.get('beanstalk'):
         kwargs['message_queue'] = "beanstalk://%s/" % kwargs['beanstalk']
 
+    #'newtask_queue', 'status_queue', 'scheduler2fetcher','fetcher2processor', 'processor2result'的queue对象添加到kwargs
     for name in ('newtask_queue', 'status_queue', 'scheduler2fetcher',
                  'fetcher2processor', 'processor2result'):
         if kwargs.get('message_queue'):
@@ -150,20 +171,28 @@ def cli(ctx, **kwargs):
         else:
             kwargs[name] = connect_message_queue(name, kwargs.get('message_queue'),
                                                  kwargs['queue_maxsize'])
-
+    
     # phantomjs-proxy
     if kwargs.get('phantomjs_proxy'):
         pass
     elif os.environ.get('PHANTOMJS_NAME'):
         kwargs['phantomjs_proxy'] = os.environ['PHANTOMJS_PORT_25555_TCP'][len('tcp://'):]
-
-    ctx.obj = utils.ObjectDict(ctx.obj or {})
-    ctx.obj['instances'] = []
+        
+    #ctx是clickl.core.Context object
+    ctx.obj = utils.ObjectDict(ctx.obj or {})  
+    #ctx.obj = {}  看了下,应该是实现了一个词典功能的对象。我不知道为什么。
+    ctx.obj['instances'] = []    
+    #词典添加instances
     ctx.obj.update(kwargs)
-
+    #把kwargs全部放进ctx.obj属性之中
     if ctx.invoked_subcommand is None and not ctx.obj.get('testing_mode'):
         ctx.invoke(all)
     return ctx
+'''
+1，kwargs怎么来的
+2，click库不了解，不知道ctx.invoke到底执行了什么
+3，目测这几个方法好像没有关联，之后再看
+'''
 
 
 @cli.command()
